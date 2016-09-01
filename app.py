@@ -2,11 +2,10 @@ from flask import Flask
 from flask import request
 from flask import make_response
 # import json
-import re
 import redis
-# import dateutil.parser
+import re
 
-from logplex import LogEntry
+import logplex, hubot
 
 app = Flask(__name__)
 
@@ -18,47 +17,40 @@ def hello():
 
 @app.route("/logs", methods=['GET', 'POST'])
 def logs():
-    # app.logger.debug(request.data)
-    # app.logger.debug("\033[1m{}\033[0m".format(request.data.strip().split('\n')))
+    # TODO: check Content-Type header ('application/logplex-1')
     for line in request.data.strip().split('\n'):
-
-        for entry in LogEntry.parse(line):
-            app.logger.debug(entry.time)    
-
-        # l = LogEntry(line)
-        # app.logger.debug(l.time)
-        # app.logger.debug(l.msg)
-
-        pattern = '<\d+>\d+ \d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(.\d+)?[+-]\d\d:\d\d'
-        s = [m.start() for m in re.finditer(pattern, line)]
-
-        pattern2 = '<\d+>'
-        s2 = [m.start() for m in re.finditer(pattern2, line)]
-
-        if s != s2:
-            r.incr('re_mismatch')
-            app.logger.debug("expected: {}, actual: {}, string: '{}'".format(s2, s, line))
-            app.logger.debug("\033[1mmismatches: {}\033[0m".format(count))
-
-        # for i in s:
-        #     for x in partition(line, s)[1:]:
-        #         l = LogEntry(x.strip())
-        #         app.logger.debug("{}: {}".format(l.time, l.msg))
-        #         app.logger.debug(dateutil.parser.parse(l.time))
-
-    # app.logger.debug(request.form)
+        # TODO: check Logplex-Msg-Count header (`msgs.length`?)
+        for entry in logplex.parse(line):
+            # app.logger.debug("{}: {}".format(entry.time, entry.msg))
+            # app.logger.debug(entry)
+            # app.logger.debug(entry.is_hubot)
+            # if entry.is_hubot:
+            h = hubot.parse(entry.msg)
+            if h:
+                key = "log:{}:{}".format(h.level.lower(), entry.timestamp)
+                # app.logger.debug(key)
+                r.incr(key)
+                r.expire(key, 604800)
+            # if entry.name == "app" and re.match("Error", entry.msg):
+            if re.match(".*Error", entry.msg):
+                app.logger.info(entry)
+                i = r.incr("log:count:error")
+                r.set("log:detail:error:" + str(i), entry)
+            # TODO: do something
 
     res = make_response()
     res.headers['Content-Length'] = '0'
     return res
 
-# def partition(alist, indices):
-#     return [alist[i:j] for i, j in zip([0]+indices, indices+[None])]
-
-@app.route('/mismatches')
+@app.route('/get')
 def get():
-    m = r.get('re_mismatch')
-    return "{}".format(m), 200
+    keys = r.keys("log:*")
+    a = []
+    for k in keys:
+        m = re.match('^log:error:([0-9]+)$', k)
+        if m:
+            a.append("{},{}".format(m.group(1), r.get(k)))
+    return '\n'.join(a), 200
 
 if __name__ == "__main__":
     app.debug = True

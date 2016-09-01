@@ -1,38 +1,39 @@
 import re
 import dateutil.parser
+import calendar
 
-class LogEntry:
-    def __init__(self, line):
-        # print line
-        sep = line.split(' ')
-
-        # print "\033[1m{}: {}\033[0m".format(len(sep), line)
+class Entry:
+    def __init__(self, data):
+        sep = data.split(' ')
 
         self.prival_version = sep[0]
-        # print sep[1]
         self.time = dateutil.parser.parse(sep[1])
-        # self.time = sep[1]
         self.hostname = sep[2]
         self.name = sep[3]
         self.procid = sep[4]
         self.msgid = sep[5]
         self.msg = ' '.join(sep[6:])
 
-    @staticmethod
-    def parse(data):
-        pattern = '<\d+>\d+ \d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(.\d+)?[+-]\d\d:\d\d'
-        s = [m.start() for m in re.finditer(pattern, data)]
+        self.timestamp = calendar.timegm(self.time.utctimetuple())
 
-        # s = re.search('<\d+>', line)
-        # print "\033[1m{}\033[0m".format(s)
+    # @property
+    # def is_hubot(self):
+    #     return bool(re.search('^\[.*?\] [A-Z]+', self.msg))
 
-        r = []
+    def __str__(self):
+        return "{} {}[{}]: {}".format(self.time, self.name, self.procid, self.msg)
 
-        for i in s:
-            for x in partition(data, s)[1:]:
-                r.append(LogEntry(x.strip()))
-                # app.logger.debug("{}: {}".format(l.time, l.msg))
-        return r
+def parse(data):
+    """Processes logplex data and returns a list of log entries."""
+    return [Entry(x.strip()) for x in _split_msgs(data)[1:]]
 
-def partition(alist, indices):
+def _partition(alist, indices):
     return [alist[i:j] for i, j in zip([0]+indices, indices+[None])]
+
+_pattern = '<\d+>\d+ \d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\d(.\d+)?[+-]\d\d:\d\d'
+_re_logplex = re.compile(_pattern)
+
+def _split_msgs(string):
+    s = [m.start() for m in _re_logplex.finditer(string)]
+
+    return _partition(string, s)
